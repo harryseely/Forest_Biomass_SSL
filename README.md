@@ -45,6 +45,13 @@ The uv package manager allows for the installation of specific package versions 
     ```
     uv sync
     ```
+
+## Pretrained Model
+
+The pretrained OCNN weights are provided in the `ocnn_pretrained.ckpt` file. 
+
+Please refer to the `load_checkpoint` method within `models/ocnn_lightning.py` for details regarding loading a model checkpoint.
+
     
 # Acknowledgements
 
