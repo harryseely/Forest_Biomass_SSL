@@ -1,0 +1,247 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+# Get packages
+
+```{r}
+
+library(lidR)
+library(sf)
+library(here)
+library(future)
+library(parallel)
+library(future.apply)
+library(dplyr)
+
+```
+
+#Set global vars
+
+```{r}
+PLOT_RADIUS <- 11.28
+
+SAMPLE_PTS_FPATH <- here("data/unlabeled_samples.gpkg")
+
+TILES_DIR <- "E:/RMF/RMF_SPL100/LAS_Classified_Point_Clouds_Normalized"
+
+CLIP_LAS_OUT_DIR <- "E:/RMF/RMF_SPL100/clipped_unlabeled_samples"
+
+NCORES <- 10
+
+```
+
+Read the plot locations
+
+```{r}
+
+#Read the unlabeled sample points
+sample_pts <- st_read(SAMPLE_PTS_FPATH)
+```
+
+Read las catalog
+
+```{r}
+ctg <- lidR::readLAScatalog(TILES_DIR)
+ctg
+```
+Modify some LASCatalog options to speed up clipping 
+
+```{r}
+
+#Only read xyz coords, no other lidar attributes needed
+opt_select(ctg) <- "xyz"
+
+#Do not plot progress
+opt_progress(ctg) <- FALSE
+
+#Do not stop if running into an erro
+opt_stop_early(ctg) <- FALSE
+
+```
+
+
+Clear existing files from output directory (if specified)
+
+```{r}
+
+#Delete existing files in directory (input required)
+rm_files <- readline(prompt="Remove existing files (TRUE/FALSE): ")
+
+if(rm_files == "TRUE"){
+  unlink(CLIP_LAS_OUT_DIR, recursive = TRUE)
+}
+
+
+#Read the existing clipped files and remove them from the sample_pts df
+clipped_fnames <- list.files(CLIP_LAS_OUT_DIR, full.names = F)
+clipped_ids <- as.integer(gsub(".las", "", clipped_fnames))
+
+#Remove the clipped files from the sample_pts df
+print(paste("Removing", 
+            length(clipped_ids), 
+            "clipped files from the sample_pts df"))
+            
+sample_pts <- sample_pts %>% 
+  filter(!ID %in% clipped_ids)
+
+
+
+```
+
+Get a vector of xy coords from df
+
+```{r}
+
+#Extract x and y coords 
+sample_pts <- sample_pts %>% 
+  mutate(x = st_coordinates(geom)[,1],
+         y = st_coordinates(geom)[,2]) %>%
+  select(x, y, ID) %>%
+  st_drop_geometry() %>% 
+  as.matrix() %>% 
+  unname()
+
+```
+
+
+Define function to clip points from ctg
+
+```{r}
+
+clip_ctg <- function(x_y_id, ctg, rad, out_dir){
+  
+  #x_y_id: matrix with the values x, y, and ID in order
+  #ctg: LASCatalog object
+  #rad: radius of the circle from which to clip the ctg
+  #out_dir: output directory for the clipped file
+  
+  tryCatch({
+    
+  #Set output fpath for ctg
+  opt_output_files(ctg) <- file.path(out_dir, x_y_id[3])
+  
+  #Test clip circle for one plot
+  clip_circle <- lidR::clip_circle(ctg, 
+                                   xcenter=x_y_id[1], 
+                                   ycenter=x_y_id[2], 
+                                   radius=rad)
+  
+  }, error = function(e) {
+    
+      #Report error
+      print(paste("Error for sample ID:", x_y_id[3]))
+      print(e)
+  })
+}
+
+```
+
+Test fn on plot
+
+```{r}
+
+#Grab a test row
+test_row <- sample_pts[1,]
+
+#Test function using a single plot
+clip_ctg(x_y_id=test_row, 
+            ctg=ctg, 
+            rad=PLOT_RADIUS, 
+            out_dir=CLIP_LAS_OUT_DIR)
+
+rm(test_row)
+
+```
+
+Test function for 10 rows using apply
+
+```{r}
+
+#Grab a test row
+test_matrix <- sample_pts[1:10,]
+
+#Test function using several plots
+apply(test_matrix,
+      MARGIN=1, 
+      FUN=clip_ctg, 
+      #Func Args
+      ctg=ctg, 
+      rad=PLOT_RADIUS, 
+      out_dir=CLIP_LAS_OUT_DIR)
+
+rm(test_matrix)
+
+```
+
+Function to clip rasters in parallel
+
+```{r}
+
+clip_ctg_par <- function(x_y_id_matrix, ctg, rad, out_dir, ncores){
+  #x_y_id_matrix: matrix with x, y, and ID as cols and each point as rows
+  
+  #Initiate parallel processing
+  cl <- parallel::makeCluster(NCORES, timeout = 60 * 5)
+  plan(cluster, workers = cl)
+  
+  #Clip the rasters
+  future_apply(x_y_id_matrix, 
+               MARGIN=1, 
+               FUN=clip_ctg, 
+               #Func Args
+               ctg=ctg, 
+               rad=rad, 
+               out_dir=out_dir,
+               future.seed=TRUE)
+  
+  #Stop the cluster
+  parallel::stopCluster(cl)
+  
+}
+
+```
+
+
+Clip laz files in parallel
+
+```{r}
+
+#Get start time
+start_time <- Sys.time()
+
+clip_ctg_par(x_y_id_matrix=sample_pts, 
+             ctg=ctg, 
+             rad=PLOT_RADIUS, 
+             out_dir=CLIP_LAS_OUT_DIR, 
+             ncores=NCORES)
+
+#Report runtime
+end_time <- Sys.time()
+
+#Sumamrize runtime
+elapsed_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
+elapsed_hours <- floor(elapsed_time / 3600)
+elapsed_minutes <- floor((elapsed_time %% 3600) / 60)
+elapsed_seconds <- elapsed_time %% 60
+
+#Calculate time per plot
+s_per_plot <- elapsed_time / nrow(sample_pts)
+
+#Extrapolate to one million samples
+s_per_million <- s_per_plot * 1e6
+
+#Print as hours
+h_per_million <- s_per_million / 60 / 60
+
+#Print to console
+print(paste("For", nrow(sample_pts), "files using", NCORES, "cores:"))
+
+print(paste("Elapsed time:", elapsed_hours, "hours,", 
+            elapsed_minutes, "minutes,", elapsed_seconds, "seconds for",
+            nrow(sample_pts), "plots."))
+
+print(paste("Estimated time of", round(h_per_million, 2), "hours for 1M plots"))
+
+```
+

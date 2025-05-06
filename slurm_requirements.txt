@@ -1,0 +1,9 @@
+torch==2.5.1+computecanada
+torchvision==0.20.1+computecanada
+lightning==2.5.0+computecanada
+ocnn==2.2.6+computecanada
+scikit-learn==1.6.1+computecanada
+laspy[lazrs]==2.5.4+computecanada
+pandas==2.2.3+computecanada
+geopandas==1.0.1+computecanada
+wandb==0.19.6+computecanada

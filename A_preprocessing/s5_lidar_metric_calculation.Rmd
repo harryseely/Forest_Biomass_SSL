@@ -1,0 +1,217 @@
+---
+title: "Calculating Lidar Metrics"
+author: "Harry Seely"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+
+```{r}
+library(tidyverse)
+library(here)
+library(lidR)
+library(lidRmetrics)
+library(parallel)
+library(future)
+library(furrr)
+
+source("preprocessing/preprocessing_utils.R")
+```
+
+Specify global args
+
+```{r}
+
+N_CORES = as.integer(10)
+N_CHUNKS = 50
+METRICS_CSV_FPATH = here("data/unlabeled_plot_metrics.csv")
+CLIP_LAS_OUT_DIR <- "E:/RMF/RMF_SPL100/clipped_unlabeled_samples"
+
+```
+
+Define custom set of lidar metrics using the lidRmetrics package.
+
+https://github.com/ptompalski/lidRmetrics
+
+Test the function
+
+```{r}
+LASfile <- system.file("extdata", "Megaplot.laz", package="lidR")
+
+las <- readLAS(LASfile, select = "*", filter = "-keep_random_fraction 0.5")
+
+```
+
+
+```{r}
+
+test_metrics <- lidR::cloud_metrics(las, func = custom_metrics(x=X, y=Y, z=Z))
+
+rm(LASfile, las)
+
+names(test_metrics)
+
+
+
+```
+
+
+Define functions for processing lidar data
+
+```{r}
+
+#Function to get lidar metrics from las file
+get_las_metrics <- function(las_fpath){
+  
+  las <- readLAS(las_fpath)
+  
+  metrics <- lidR::cloud_metrics(las, func = custom_metrics(x=X, y=Y, z=Z))
+  
+  metrics["fname"] = gsub(".las", "", basename(las_fpath))
+  
+  return(metrics)
+  
+}
+
+
+# Function for parallel lidar metric calculation
+calc_metrics_parallel <- function(las_fpaths, n_cores, n_chunks, out_csv_fpath) {
+  # Get start time
+  t0 <- Sys.time()
+  
+  # Split las_fpaths into chunks
+  las_fpaths_chunks <- split(las_fpaths, 
+                             rep(1:n_chunks, length.out = length(las_fpaths)))
+
+  # Iterate over chunks
+  for (i in seq_along(las_fpaths_chunks)) {
+    
+    print(paste("Starting chunk", i, "of", n_chunks))
+    
+    # Initiate parallel processing
+    cl <- parallel::makeCluster(n_cores, timeout = 60)
+    plan(cluster, workers = cl)
+    
+    # Get ith chunk of las_fpaths
+    las_fpaths_chunk <- las_fpaths_chunks[[i]]
+    
+    # Implement parallel processing with seed
+    results <- future_map(las_fpaths_chunk, get_las_metrics, .options = furrr_options(seed = TRUE))
+    
+    # Combine results into single df
+    df <- do.call(rbind, results)
+    
+    #Create the CSV if it does not yet exist
+    if (!file.exists(out_csv_fpath)){
+      write.csv(df, out_csv_fpath, row.names = FALSE)
+    
+    #If a CSV already exists, add new rows
+    } else {
+      write.table(df, out_csv_fpath, row.names = FALSE, 
+                  col.names = FALSE, sep = ",", append = TRUE)
+    }
+    
+    print(paste("Saved metrics to csv for chunk", i, "of", n_chunks))
+    
+    #Ensure cluster is stopped
+    parallel::stopCluster(cl)
+    
+  }
+  
+  # Record end time
+  t1 <- Sys.time()
+  
+  # Report time elapsed in hours, minutes, seconds
+  time_elapsed <- t1 - t0
+  time_elapsed_hms <- format(time_elapsed, units = c("hours", "mins", "secs"))
+  print(paste("Time elapsed: ", time_elapsed_hms, "for", length(las_fpaths), "LAS files using", n_cores, "cores"))
+  
+  #Get time per file
+  time_per_file <- time_elapsed/length(las_fpaths)
+  print(paste("Time per file:", time_per_file))
+  
+  # Extrapolate for 1M files
+  time_per_million <- time_per_file * 1e6
+  time_per_million_hms <- format(time_per_million, units = c("hours", "mins", "secs"))
+  print(paste("Time per million files:", time_per_million_hms))
+  
+  return(read.csv(out_csv_fpath))
+}
+```
+
+Determine which plots already have metrics
+
+```{r, echo=F}
+
+clipped_las_fpaths <- list.files(CLIP_LAS_OUT_DIR, pattern = ".las$", full.names = T)
+
+if(file.exists(METRICS_CSV_FPATH)){
+  
+  #Read the csv containing lidar metrics for plots that are already done
+  done_df <- read.csv(METRICS_CSV_FPATH)
+  
+  #Get the filenames of the completed plots
+  paste0(done_df$fname, ".las")
+
+  #Get the filenames of the clipped las files with existing metrics
+  done_fnames <- paste0(done_df$fname, ".las")
+
+  #Reduce the list of clipped las files to those without metrics
+  print(paste("Removing", length(done_fnames), 
+              "files with existing metrics from input list"))
+  
+  clipped_las_fpaths <- clipped_las_fpaths[!basename(clipped_las_fpaths) %in% done_fnames]
+  
+} else{
+  print("No existing metrics csv found")
+  }
+
+
+print(paste("Calculating metrics for", length(clipped_las_fpaths), "clipped LAS files"))
+
+print(paste("Processing", N_CHUNKS, "chunks, each with", N_CORES, "cores"))
+
+print(paste("This means", round(length(clipped_las_fpaths)/N_CHUNKS, 0), 
+            "files per chunk and",
+            round(length(clipped_las_fpaths)/N_CHUNKS/N_CORES,0), 
+            "files per core"))
+
+rm(done_df, done_fnames, test_metrics)
+
+```
+
+Calculate metrics in parallel
+
+```{r}
+metrics_df <- calc_metrics_parallel(clipped_las_fpaths, 
+                                    n_cores = N_CORES,
+                                    n_chunks = N_CHUNKS,
+                                    out_csv_fpath = METRICS_CSV_FPATH
+                                    )
+head(metrics_df)
+
+```
+
+
+```{r}
+
+metrics_df <- read.csv(METRICS_CSV_FPATH)
+
+metrics <- names(metrics_df)
+
+metrics <- metrics[!metrics %in% "fname"]
+
+metrics
+
+```
+
+
+

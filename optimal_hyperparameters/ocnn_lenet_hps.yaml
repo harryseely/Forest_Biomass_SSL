@@ -1,0 +1,13 @@
+model_nm: 'ocnn_lenet' 
+n_epochs: 200
+batch_size: 8
+lr: 0.0001
+weight_decay: 0.01
+dropout: 0.1
+early_stopping: True
+model_ckpt_fpath: "checkpoints_and_config/ocnn_lenet_pretrain/pretrain_ocnn_lenet_2025_02_19_02_13_47_id54945024/epoch=99-val_loss=0.03-val_r2=0.88.ckpt"
+octree_depth: 6
+ocnn_stages: 4
+ocnn_full_depth: 2
+ocnn_features: "L" #See docs for more details: https://ocnn-pytorch.readthedocs.io/en/latest/modules/octree.html#ocnn.octree.Octree.get_input_feature
+octree_nempty: False
