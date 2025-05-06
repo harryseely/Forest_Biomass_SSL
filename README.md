@@ -1,5 +1,5 @@
 <div style="text-align:center;">
-    <h1>Forest Aboveground Biomass Estimation Using Self-Supervised Deep Learning</h1>
+    <h1>Addressing The Small Data Problem in Forestry: Self-Supervised Learning for Aboveground Biomass Estimation</h1>
 </div>
 
 <br>
