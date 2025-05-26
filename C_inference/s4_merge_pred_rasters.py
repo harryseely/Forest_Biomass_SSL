@@ -10,6 +10,8 @@ import time
 
 if __name__ == "__main__":
 
+    OUT_CELL_RES = 11.28 * 2
+
     RMF_INDEX_FPATH = r"E:/RMF/RMF_SPL100/LAS_Classified_Point_Clouds_Normalized_index.gpkg"
 
     TILE_TRIM_DIR = r"E:/rq3_rmf_inference/tile_predictions_trimmed"
@@ -38,7 +40,7 @@ if __name__ == "__main__":
     [dataset_ls.append(rasterio.open(fpath, mode="r")) for fpath in ras_fpath_ls]
 
     merge(dataset_ls, 
-            res=11.28, 
+            res=OUT_CELL_RES, 
             dst_path=MERGED_RAS_OUT_FPATH,
             nodata=-99999)
 

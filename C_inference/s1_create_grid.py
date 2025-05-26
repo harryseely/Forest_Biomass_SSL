@@ -91,11 +91,11 @@ if __name__ == "__main__":
 
     OUT_DIR = r"E:/rq3_rmf_inference"
 
-    PLOT_RADIUS = 11.28  
+    OUT_CELL_RES = 11.28 * 2 
 
     # Create grid and centroids
     grid_and_centroid(tiles_gdf=RMF_INDEX,
-                        res=PLOT_RADIUS * 2,
+                        res=OUT_CELL_RES,
                         tile_fpath_field="filename",
                         centroids_out_path=os.path.join(OUT_DIR, "rmf_centroids.gpkg"),
                         updated_tiles_out_path=os.path.join(OUT_DIR, "rmf_tiles_with_cells.gpkg"))

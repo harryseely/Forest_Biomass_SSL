@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     MERGED_RAS_OUT_FPATH = r"E:/rq3_rmf_inference/tile_predictions_merged.tif"
 
-    CHM_FPATH = r"E:/RMF/LiDAR Summary Metrics/CHM_11.28m_resampled.tif"
+    CHM_FPATH = r"E:/RMF/LiDAR Summary Metrics/CHM_22.56m_resampled.tif"
 
     CLEANED_RAS_OUT_FPATH = r"E:/rq3_rmf_inference/tile_predictions_clean.tif"
 
