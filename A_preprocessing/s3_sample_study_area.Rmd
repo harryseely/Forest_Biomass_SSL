@@ -1,0 +1,218 @@
+---
+title: "Generate Unlabeled Sample Locations"
+author: "Harry Seely"
+date: "`r Sys.Date()`"
+output:
+    html_document:
+        keep_md: true
+        toc: true
+        toc_float: true
+        number_sections: true
+        theme: cosmo
+        highlight: tango
+        code_folding: hide
+        fig_caption: true
+        fig_height: 6
+        fig_width: 8
+        fig_retina: 2
+        toc_depth: 3
+        collapsed: false
+        smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+start_time <- Sys.time()
+
+```
+
+# Get packages
+
+```{r}
+
+
+library(tidyverse)
+library(terra)
+library(here)
+library(sf)
+
+
+```
+
+
+
+# Set global vars 
+
+```{r}
+
+#Number of sample points
+N_SAMPLES <- 500000
+
+#RMF raster dir
+RMF_RAS_DIR <- "E:/RMF/LiDAR Summary Metrics"
+
+#Output sample locations file path
+SAMPLE_PTS_OUT_FPATH <- here("data/unlabeled_samples.gpkg")
+
+RMF_FOREST_FPATH <- here("data/rmf_forest_area.gpkg")
+
+```
+
+# Load rasters for stratification
+
+```{r}
+
+#Read zq95 for masking non-forested areas 
+zq95 <- rast(file.path(RMF_RAS_DIR, "ZQ95.tif"))
+
+#Load the RMF area
+aoi <- st_read(here("data/romeo_malette/romeo_malette_boundary.gpkg")) %>%
+  st_transform(crs = st_crs(zq95))
+
+#Mask out areas that are less than 1.5m (not considered forested)
+forest_area_mask <- terra::ifel(zq95 > 1.5, 1, NA)
+
+#View rasters used for sampling
+plot(forest_area_mask, col = "darkgreen", main = "Forest Area Mask (>1.5m)")
+
+#Smooth the forested areas raster
+forest_area_mask_smt <- terra::focal(forest_area_mask, w = matrix(1, nrow = 3, ncol = 3), fun = "modal")
+
+#View rasters used for sampling
+plot(forest_area_mask_smt, col = "darkgreen", main = "Forest Area Mask Smoothed (>1.5m)")
+
+#Vectorize forest areas mask
+forest_area <- st_as_sf(terra::as.polygons(forest_area_mask_smt))
+forest_area <- st_as_sf(forest_area)
+
+#Generate a negative buffer around the RMF boundary so not sampling any plots too close to the boundary
+aoi_neg_buf <- st_buffer(aoi, dist = -100)
+
+#Clip the forested area to the negative buffer
+forest_area <- st_intersection(forest_area, aoi_neg_buf)
+
+plot(st_geometry(forest_area), 
+     col = "darkgreen", 
+     border = NA,
+     main = "Forest Area Polygons (>1.5m)")
+
+
+
+
+```
+
+# Perform grid sampling within forested area
+
+```{r}
+
+print("Sampling N Plots:")
+sprintf("%.0f", N_SAMPLES)
+
+set.seed(122)
+sample_pts <- st_sample(forest_area, 
+                        size = N_SAMPLES, 
+                        exact = TRUE,
+                        type = "regular"
+                        ) %>% 
+  st_as_sf() %>% 
+  st_transform(crs = st_crs(aoi))
+
+stopifnot(nrow(sample_pts) >= N_SAMPLES)
+
+#Ensure there are exactly the target number of samples
+sample_pts <- sample_pts %>% 
+  slice_head(n = N_SAMPLES)
+
+print(paste0("There are ", nrow(sample_pts), " sample points."))
+
+```
+Assign each sample point a unique alphanumeric ID
+
+```{r}
+
+sample_pts$ID <- 1:nrow(sample_pts)
+
+print(head(sample_pts))
+print(tail(sample_pts))
+
+```
+
+
+Verify the distance between each sample on the grid
+
+```{r}
+
+two_samples <- sample_pts %>% 
+  slice_head(n = 2)
+
+dist_sep_plots <- round(sf::st_distance(two_samples)[2], 0)
+
+print(paste("Sample plots separated by", dist_sep_plots, "m"))
+
+```
+
+
+# Check 95th height percentile of sample points
+
+```{r}
+
+sample_pts_spat <- terra::extract(x = zq95, 
+                                 y = vect(sample_pts),
+                                 method = "simple",
+                                 fun = mean,
+                                 bind = TRUE)
+
+sample_pts <- st_as_sf(sample_pts_spat)
+
+#Summarize zq95
+hist(sample_pts$ZQ95,
+     main = "ZQ95 at Sample Points",
+     xlab = "ZQ95 (m)")
+
+
+
+
+```
+
+#Export data
+
+```{r}
+
+#Forested area
+st_write(forest_area, dsn=RMF_FOREST_FPATH, append = F)
+
+#Sample plots
+st_write(sample_pts, dsn=SAMPLE_PTS_OUT_FPATH, append = F)
+
+```
+
+
+# Report runtime and summarize session
+
+```{r, echo=TRUE}
+
+end_time <- Sys.time()
+
+# Calculate elapsed time in seconds
+elapsed_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+# Convert elapsed time to hours, minutes, and seconds
+elapsed_hours <- floor(elapsed_time / 3600)
+elapsed_minutes <- floor((elapsed_time %% 3600) / 60)
+elapsed_seconds <- elapsed_time %% 60
+
+# Print the elapsed time in hours, minutes, and seconds
+cat("Elapsed time:", elapsed_hours, "hours,", elapsed_minutes, "minutes,", elapsed_seconds, "seconds.")
+
+```
+
+# Reproducibility
+
+```{r, echo=TRUE}
+
+Sys.info()
+
+sessionInfo()
+
+```

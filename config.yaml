@@ -1,0 +1,99 @@
+#Training logistics
+project_nm: 'misc' #Checkpoint subdirectory to store runs
+model_nm: 'ocnn_lenet' 
+task: "scratch" #Options: 'pretrain', 'finetune', 'scratch'
+n_epochs: 10
+ddp: False # Whether to use distributed data parallel with available gpu's or train on one gpu
+n_data_workers: 0
+early_stopping: False
+patience: 30
+verbose: False
+n_train_val_samples: "all" #Options: 'all' or integer number of samples to use for training + validation
+
+#Data parameters
+spatial_cv: False #True/False; whether to use spatial cross-validation or stratified k-fold
+cv_fold_num: 1 #Which fold to use for either stratified or spatial cross validation
+unlabeled_train_val_split: 0.75 #Proportion of unlabelled data to use for training
+biomass_comp_nms:
+  - foliage
+  - bark
+  - branch
+  - wood
+
+#Hyperparameters
+dropout: 0.5
+lr: 0.001
+batch_size: 32
+early_stop_min_delta: 0.001 #0.001 used in rq2 paper
+weight_decay: 0.05
+loss_fn: "smooth_l1" #Options: 'mse', 'smooth_l1'
+
+#OCNN Parameters
+octree_depth: 6
+ocnn_stages: 4
+ocnn_full_depth: 2
+ocnn_features: "L" #See docs for more details: https://ocnn-pytorch.readthedocs.io/en/latest/modules/octree.html#ocnn.octree.Octree.get_input_feature
+octree_nempty: False
+
+#Logging
+logging: True
+monitor_lr: False
+
+#Checkpointing
+resume_training: False #Whether to resume training from a checkpoint
+model_ckpt_fpath: null #Relative file path to load model checkpoint
+n_checkpoints: 1 #N checkpoints saved (1 use for finetuning/scratch to save best, -1 saves all for pretraining)
+ckpt_freq_epochs: 1 #How often to checkpoint (if 1, checks every epoch if model should be saved)
+
+#See lidRmetrics package for more details: https://github.com/ptompalski/lidRmetrics
+target_lidar_metrics:
+  - zmax
+  - zmean
+  - zvar
+  - zsd
+  - zcv
+  - zskew
+  - zkurt
+  - zpcum1
+  - zpcum2
+  - zpcum3
+  - zpcum4
+  - zpcum5
+  - zpcum6
+  - zpcum7
+  - zpcum8
+  - zpcum9
+  - vn
+  - vFRall
+  - vFRcanopy
+  - vzrumple
+  - vzsd
+  - vzcv
+  - OpenGapSpace
+  - ClosedGapSpace
+  - Euphotic
+  - Oligophotic
+  - lad_min
+  - lad_max
+  - lad_mean
+  - lad_cv
+  - lad_sum
+  - pzabovemean
+  - pzabove2
+  - pzabove5
+  - ziqr
+  - zMADmean
+  - zMADmedian
+  - CRR
+  - zentropy
+  - pz_below_0
+  - pz_0-0.15
+  - pz_0.15-2
+  - pz_2-5
+  - pz_5-10
+  - pz_10-20
+  - pz_20-30
+  - pz_above_30
+
+#Relative file path to the data labels
+labels_rel_fpath: data/biomass_labels.csv

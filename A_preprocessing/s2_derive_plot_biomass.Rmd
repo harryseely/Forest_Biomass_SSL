@@ -1,0 +1,709 @@
+---
+title: "Preprocessing Romeo Malette Plot Data"
+author: "Harry Seely"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+# Setup
+
+```{r setup, include=FALSE}
+
+start_time <- Sys.time()
+
+#All chunks echo
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+
+# Get packages
+
+```{r}
+
+library(tidyverse)
+library(here)
+library(sf)
+library(ggpubr)
+
+#Import custom functions
+source(here("A_preprocessing/preprocessing_utils.R"))
+
+```
+
+
+# Load allometric equations
+
+Allometric equations from Lambert et al. (2003) and Ung et al. (2008)
+
+Lambert et al: https://doi.org/10.1139/x05-112
+
+Ung et al: https://doi.org/10.1139/X07-224
+
+Allometric equation parameters can be downloaded at:
+https://apps-scf-cfs.rncan.gc.ca/calc/en/biomass-calculator
+
+```{r}
+
+#Load allometric equation equation parameters and filter to Lambert et al. (2003)
+
+eqs_dbh <- read_csv(here("data/ung_lambert_allometric_eqs_DBH_only.csv"))
+
+eqs_dbh_ht <- read_csv(here("data/ung_lambert_allometric_eqs_DBH_Height.csv"))
+
+```
+
+Set main directories
+
+```{r}
+
+#Directory where clipped las files are stored
+clipped_las_dir <- here("data/plot_point_clouds")
+
+```
+
+Load plot data
+
+```{r}
+
+#Load data
+
+trees <- read_csv(here("data/romeo_malette/romeo_individual_tree_measurements.csv"))
+
+sp_codes <- read_csv(here("data/romeo_malette/romeo_species_codes.csv"))
+
+plots <- st_read(here("data/romeo_malette/plot_locations/MasterPlotLocationUTM_December6.shp"))
+
+plot_info <- read_csv(here("data/romeo_malette/tblPlot.csv"))
+
+#Join the species info with the trees df
+trees <- left_join(trees, sp_codes, by = "SpeciesCode")
+rm(sp_codes)
+
+#Join plot info with plots and trees
+trees <- left_join(trees, plot_info, by = "PlotKey")
+
+#Rename PlotName as PlotID
+trees <- trees %>% rename(PlotID = PlotName)
+
+#ASSIGN A UNIQUE TREE ID across all trees
+trees <- tibble::rowid_to_column(trees, "tree_ID")
+```
+
+# Examine tree data
+
+Check for NAs in plot ID
+
+```{r}
+
+#check for NAs in plot Key or plot ID
+table(is.na(trees$PlotKey))
+table(is.na(trees$PlotID))
+
+```
+
+Check the sampling dates
+```{r}
+
+trees <- trees %>%
+  mutate(samp_date = as.Date(MsrDate, format = "%Y-%m-%d")) %>%
+  mutate(samp_year = year(samp_date))
+
+sort(unique(trees$samp_date))
+
+#Drop plots that were sampled in 2017 (2 plots)
+trees <- trees %>%
+  filter(samp_year != 2017)
+
+sort(unique(trees$samp_year))
+
+```
+
+
+
+# Clean tree data
+
+Check status codes
+
+```{r}
+#What percent of measured trees are dead?
+round(table(trees$StatusCode)/nrow(trees)*100,1)
+
+```
+
+Clean trees df and remove dead trees
+
+```{r}
+#Remove dead trees (only estimating live biomass for now)
+trees <- trees %>% filter(StatusCode == "L"| StatusCode == "V")
+
+#Rename vars
+trees <- trees %>% rename(species = Common,
+                          height = TotalHeight,
+                          dbh = DBH)
+
+
+```
+
+# Get species in plots
+
+```{r}
+
+trees %>%
+  group_by(species) %>%
+  summarize(
+            n = n(),
+            perc = round(n()/nrow(trees)*100, 2)
+  ) %>%
+  arrange(desc(n))
+
+
+```
+
+
+
+
+Rename tree species to match allometric equations
+
+```{r}
+
+#Paper Birch as White Birch 
+trees$species[trees$species == "Paper Birch"] <- "White Birch"
+
+#American Larch as Tamarack Larch
+trees$species[trees$species == "American Larch"] <- "Tamarack Larch"
+
+#Bitternut Hickory as Hickory
+trees$species[trees$species == "Bitternut Hickory"] <- "Hickory"
+
+#Pitch Pine as Coniferous (since there is only 1 across entire dataset, 
+#...not worth gathering exact allometric equation parameters for)
+trees$species[trees$species == "Pitch Pine"] <- "Conifers"
+
+#Eastern Red Cedar as Coniferous (since there is only 1 across entire dataset, 
+#...not worth gathering exact allometric equation parameters for)
+trees$species[trees$species == "Eastern Red Cedar"] <- "Conifers"
+
+#Assign trees without ID species var to "All" to use generic biomass eq
+trees$species[is.na(trees$species)] <- "All"
+
+#Capitalize allometric eq species names for both lists of parameters
+eqs_dbh$Species_en <- str_to_title(eqs_dbh$Species_en)
+eqs_dbh_ht$Species_en <- str_to_title(eqs_dbh_ht$Species_en)
+
+#Check that all species names in data coreespond to those in allometric eqs
+print("All species in data are in allometric eqs:")
+table(unique(trees$species) %in% unique(eqs_dbh$Species_en))
+table(unique(trees$species) %in% unique(eqs_dbh_ht$Species_en))
+
+```
+
+Check DBH values for NAs
+```{r}
+
+#Check for NA values in height and DBH cols
+print("Trees with/without DBH measurements")
+print(table(!is.na(trees$dbh)))
+
+#Remove trees that have no DBH measurement
+trees <- trees %>% filter(!is.na(dbh))
+
+#Check for NA values in height
+print("Trees with/without height measurements")
+print(table(!is.na(trees$height))/nrow(trees))
+
+#Check for NAs in species
+table(is.na(trees$species))
+
+```
+
+Inspect height values 
+
+```{r}
+
+trees %>%
+  ggplot(aes(x = height)) +
+  geom_histogram() +
+  ggtitle("Histogram of Tree Heights") +
+  theme_minimal()
+
+```
+
+Pivot allometric equations to wide format
+
+```{r}
+eqs_dbh_wide <- eqs_dbh %>% select(Species_en, Component_en, a, b) %>%
+  pivot_wider(names_from = Component_en, values_from = c(a, b))
+
+eqs_dbh_ht_wide <- eqs_dbh_ht %>% select(Species_en, Component_en, a, b, c) %>%
+  pivot_wider(names_from = Component_en, values_from = c(a, b, c))
+
+```
+
+# Calculate tree component biomass
+
+*NOTE: biomass is calculated in kilograms (kg)
+
+Compare biomass values calculate with and without height measurements
+
+```{r}
+
+# Extract trees that have height measurements
+trees_yes_ht <- trees %>% 
+                  filter(!is.na(height))
+
+trees_biomass_yes_ht <- trees_yes_ht %>% 
+                            select(-contains(c("a_", "b_", "c_"))) %>%
+                            left_join(eqs_dbh_ht_wide, by = c("species" = "Species_en")) %>%
+                            get_tree_comp_biomass(use_height = TRUE) %>%
+                            mutate(allometric_input = "height & dbh")
+
+trees_biomass_no_ht <- trees_yes_ht %>% 
+                            select(-contains(c("a_", "b_", "c_"))) %>%
+                            left_join(eqs_dbh_wide, by = c("species" = "Species_en")) %>%
+                            get_tree_comp_biomass(use_height = FALSE) %>%
+                            mutate(allometric_input = "dbh only")
+
+allo_comparison <- bind_rows(trees_biomass_yes_ht, trees_biomass_no_ht) 
+
+allo_comparison %>% 
+            ggplot(aes(y = wood_biomass, fill = allometric_input)) +
+            geom_boxplot() +
+            theme_minimal()  
+
+agb_allo_comparison <- allo_comparison %>%
+  select(tree_ID, tree_AGB, allometric_input) %>%
+  pivot_wider(names_from = allometric_input, values_from = tree_AGB) %>%
+  mutate(agb_diff = `height & dbh` - `dbh only`)
+
+agb_allo_comparison %>%
+  ggplot(aes(x = `dbh only`, y = `height & dbh`)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  stat_cor() +
+  theme_minimal() +
+  ggtitle("AGB Allometric Comparison with and without Height Measurements") +
+  xlab("AGB (dbh only)") +
+  ylab("AGB (height & dbh)")
+
+
+agb_allo_comparison %>%
+  summarize(
+    mean_diff = mean(agb_diff),
+    sd_diff = sd(agb_diff),
+    min_diff = min(agb_diff),
+    max_diff = max(agb_diff)
+  ) %>%
+  print()
+
+rm(trees_biomass_yes_ht, 
+  trees_biomass_no_ht, 
+  allo_comparison, 
+  agb_allo_comparison, 
+  trees_yes_ht)
+
+```
+
+
+Calculate biomass using DBH-only allometries
+
+```{r, echo=TRUE}
+
+trees <- trees %>% left_join(eqs_dbh_wide, by = c("species" = "Species_en"))
+
+trees <- get_tree_comp_biomass(trees, use_height = FALSE)
+
+head(trees)
+
+```
+
+Check for NAs
+
+```{r, echo=FALSE}
+
+print("Foliage"); table(!is.na(trees$foliage_biomass))
+print("Bark"); table(!is.na(trees$bark_biomass))
+print("Branches"); table(!is.na(trees$branches_biomass))
+print("Wood"); table(!is.na(trees$wood_biomass))
+print("Total AGB"); table(!is.na(trees$tree_AGB))
+
+```
+
+Check range of biomass values
+```{r, echo=TRUE}
+
+#Check vals
+print("Foliage"); range(trees$foliage_biomass)
+print("Bark"); range(trees$bark_biomass)
+print("Branches"); range(trees$branches_biomass)
+print("Wood"); range(trees$wood_biomass)
+print("Total AGB"); range(trees$tree_AGB)
+
+
+```
+
+# Aggregate biomass calculations for each plot
+
+Convert biomass to biomass to metric tonnes per ha (1t == 1000 kg, per hectare)
+
+Each Romeo Malette plot has a radius of 11.28m, so an area of 399.7m^2
+
+1m^2 == 0.0001 ha
+
+So each plot is 0.03997 ha
+
+```{r}
+
+#How many plots have tree data?
+length(unique(trees$PlotID))
+
+#Check for NA values in vars
+table(is.na(trees$PlotID))
+
+#Get plot IDs
+unique(trees$PlotID)
+
+#Summarize biomass by component for each plot
+biomass_by_plot <- trees %>% group_by(PlotID) %>% summarise(
+  bark_total = sum(bark_biomass),
+  branch_total = sum(branches_biomass),
+  foliage_total = sum(foliage_biomass),
+  wood_total = sum(wood_biomass),
+  total_AGB = sum(tree_AGB))
+
+plot_area_in_ha <- 0.03997
+
+#Divide by 1000 for tonnes conversion, then by plot area in ha (0.03997) to get tonnes/ha
+biomass_by_plot <- biomass_by_plot %>% mutate(total_Mg_ha = total_AGB/1000/0.03997)
+biomass_by_plot <- biomass_by_plot %>% mutate(branch_Mg_ha = branch_total/1000/0.03997)
+biomass_by_plot <- biomass_by_plot %>% mutate(foliage_Mg_ha = foliage_total/1000/0.03997)
+biomass_by_plot <- biomass_by_plot %>% mutate(bark_Mg_ha = bark_total/1000/0.03997)
+biomass_by_plot <- biomass_by_plot %>% mutate(wood_Mg_ha = wood_total/1000/0.03997)
+
+#Check for NAs
+print("Checking NAs:")
+check_df_for_nas(biomass_by_plot)
+
+
+```
+
+# Summarize biomass in RMF and other plot stats
+
+```{r, echo=FALSE}
+
+#Get the range and mean of AGB
+print(range(biomass_by_plot$total_Mg_ha))
+print(mean(biomass_by_plot$total_Mg_ha))
+
+total_agb_rmf <- sum(biomass_by_plot$total_AGB)
+
+#Summarize component proportions
+biomass_comp_prop_summary <- biomass_by_plot %>%
+      select(c("foliage_total",
+               "bark_total",
+               "branch_total",
+               "wood_total")) %>%
+      pivot_longer(cols = everything(),
+                   names_to = "comp",
+                   values_to = "biomass") %>%
+      group_by(comp) %>%
+      summarize(agb_prop = round(sum(biomass) / total_agb_rmf, 2) * 100)
+               
+print(biomass_comp_prop_summary)
+
+
+
+```
+
+
+# Prep Data For Deep Learning
+
+```{r, echo=TRUE}
+
+#Create new df for data ready for dl
+#Include spectral values in df
+dl_df <- biomass_by_plot %>%
+    select(PlotID, contains("_Mg_ha"))
+
+#Check that plotids match with las filenames
+fnames <- list.files(clipped_las_dir, full.names=FALSE)
+fnames <- str_replace(fnames, ".las", "")
+fnames <- str_replace(fnames, "plot_", "")
+
+print("Checking that plot IDs match with las filenames:")
+table(dl_df$PlotID %in% fnames)
+
+#NA check and removal
+na_df <- check_df_for_nas(dl_df, return_col_names = T)
+na_cols <- names(na_df)
+print(paste("The following columns have NAs:", na_cols))
+
+#Check that each biomass component values makes sense across all datasets
+
+#HISTOGRAM
+dl_df %>%
+    select(contains("Mg_ha")) %>%
+    pivot_longer(cols = contains("Mg_ha"), names_to = "component", values_to = "biomass") %>%
+        mutate(component = str_remove(component, "_Mg_ha")) %>%
+        mutate(component = factor(component, levels = c("foliage", "bark", "branch", "wood", "total"))) %>%
+    ggplot(aes(x = biomass, fill = component)) +
+    geom_histogram() +
+    facet_wrap(~component, scales="free") +
+    ggtitle("Histogram of Biomass Components per Hectare") +
+    theme_minimal()
+
+#BOXPLOT
+dl_df %>%
+    select(contains("Mg_ha")) %>%
+    pivot_longer(cols = contains("Mg_ha"), names_to = "component", values_to = "biomass") %>%
+        mutate(component = str_remove(component, "_Mg_ha")) %>%
+        mutate(component = factor(component, levels = c("foliage", "bark", "branch", "wood", "total"))) %>%
+    ggplot(aes(x = biomass, fill = component)) +
+      geom_boxplot() +
+      coord_flip() +
+      facet_wrap(~component, scales="free") +
+      ggtitle("Boxplot of Biomass Components per Hectare") +
+      theme_minimal()
+
+#Check the contribution to tree biomass from each component -----
+foliage_perc <- round(sum(dl_df$foliage_Mg_ha)/sum(dl_df$total_Mg_ha)*100, 2)
+bark_perc <- round(sum(dl_df$bark_Mg_ha)/sum(dl_df$total_Mg_ha)*100, 2)
+branch_perc <- round(sum(dl_df$branch_Mg_ha)/sum(dl_df$total_Mg_ha)*100, 2)
+wood_perc <- round(sum(dl_df$wood_Mg_ha)/sum(dl_df$total_Mg_ha)*100, 2)
+
+paste("Total Foliage % of tree biomass:", foliage_perc)
+paste("Total Bark % of tree biomass:", bark_perc)
+paste("Total Branches % of tree biomass:", branch_perc)
+paste("Total Wood % of tree biomass:", wood_perc)
+
+foliage_perc + branch_perc + wood_perc + bark_perc
+
+
+```
+
+Convert biomass comps to z-score
+
+```{r}
+
+#Get z score for each component biomass (Mg/ha)
+dl_df$foliage_z <- convert_to_z_score(dl_df$foliage_Mg_ha)
+dl_df$bark_z <- convert_to_z_score(dl_df$bark_Mg_ha)
+dl_df$branch_z <- convert_to_z_score(dl_df$branch_Mg_ha)
+dl_df$wood_z <- convert_to_z_score(dl_df$wood_Mg_ha)
+dl_df$total_z <- convert_to_z_score(dl_df$total_Mg_ha)
+
+```
+
+
+# Split data into separate test and train/val sets, then generate k-fold train-val splits using statified sampling
+
+Set params
+```{r}
+#Set proportion for test, and then relative proportions for train and val
+test_prop <- 0.17
+val_prop <- 0.13 
+train_prop <- 1 - test_prop - val_prop
+
+#Set relative train - val props
+rel_train_prop <- train_prop/(1 - (test_prop))
+
+#Get total number of points for train and val/test sets based on propertion of total data
+n_train <- round(nrow(plots) * train_prop, 0)
+n_val <- round(nrow(plots) * (1 - train_prop)/2, 0)
+n_test <- nrow(plots) - n_train - n_val
+
+stopifnot(nrow(plots) == n_train + n_val + n_test)
+
+cat(train_prop, val_prop, test_prop)
+cat(n_train, n_val, n_test)
+
+#Set stratified sampling params
+strat_var <- "total_Mg_ha"
+n_bins <- 7
+
+```
+
+Split dataset into separate train and test sets using stratified sampling
+
+```{r}
+
+#Assign plots to bins based on total_Mg_ha
+dl_df['bins'] <-  ntile(dl_df[strat_var], n=n_bins)
+
+#Get the train/val set
+set.seed(65)
+test_df <- dl_df %>%
+  group_by(bins) %>%
+  slice_sample(prop = test_prop) %>%
+  mutate(split = "test")
+
+#Get the train/val df
+train_val_df <- dl_df %>%
+  anti_join(test_df, by = "PlotID")
+
+
+hist(test_df$total_Mg_ha, main = "Test set biomass distribution", xlab = "Biomass (Mg/ha)")
+
+```
+
+Define function to divide dataset into k-folds
+
+```{r}
+
+split_dataset <- function(i, df, rel_train_prop, id_col){
+
+  #Get the train set
+  set.seed(i)
+  train_df <- df %>%
+    group_by(bins) %>%
+    slice_sample(prop = rel_train_prop) %>%
+    mutate(split = "train")
+
+  #Get val set
+  val_df <- df %>%
+      anti_join(train_df, by = "PlotID") %>%
+      mutate(split = "val")
+
+  #Combine
+  fold_df <- train_df %>%
+    bind_rows(val_df) %>%
+    ungroup()
+
+  #Rename the column for split
+  names(fold_df) <- str_replace(names(fold_df), "split", paste0("strat_fold_", i))
+
+  #Return the PlotID with the fold col
+  out_df <- fold_df %>%
+    select(all_of(id_col), starts_with("strat_fold_"))
+
+  return(out_df)
+}
+
+#Set parameters for train/test/val splits
+n_folds <- 5
+
+#Split datasets
+out_strat_folds <- lapply(X=1:n_folds,
+            FUN=split_dataset,
+            df=train_val_df,
+            rel_train_prop=rel_train_prop,
+            id_col="PlotID")
+
+#Join all output dfs in list using PlotID col
+strat_fold_dfs <- Reduce(function(x, y) merge(x, y, by = "PlotID"), out_strat_folds)
+
+#Join splits df with dl df
+dl_df <- dl_df %>%
+  left_join(strat_fold_dfs, by = "PlotID")
+
+#Populate NA rows in strat fold cols with test set
+for (f in 1:n_folds){
+  fold_nm <- paste0("strat_fold_", f)
+  dl_df[is.na(dl_df[fold_nm]),][fold_nm] <- "test"
+}
+
+cv_split_summary <- dl_df %>% 
+  select(contains("strat_fold_")) %>%
+  pivot_longer(cols = contains("strat_fold_"), names_to = "strat_fold", values_to = "set") %>%
+  group_by(strat_fold, set) %>%
+  summarize(n = n()) %>%
+  mutate(prop = round(n/nrow(dl_df) * 100, 1)) 
+
+print(head(cv_split_summary))
+print("Check that splits sum to 100%")
+print(sum(round(cv_split_summary$prop/n_folds, 0)))
+
+#Check for duplicate PlotIDs
+print("Checking for duplicate PlotIDs")
+stopifnot(sum(duplicated(dl_df$PlotID)) == 0)
+
+```
+
+
+```{r}
+
+#Visualize distributions of test vs. train-val sets
+dl_df %>%
+  select(PlotID, starts_with("strat_fold")) %>%
+  slice_head(n = 20)
+
+```
+
+```{r}
+
+#Visualize distributions of test vs. train-val sets
+dl_df %>%
+  select(total_Mg_ha, starts_with("strat_fold")) %>%
+  pivot_longer(cols = starts_with("strat_fold"), names_to = "strat_fold", values_to = "set") %>%
+  ggplot(aes(x = total_Mg_ha, fill = set)) +
+  facet_wrap(~strat_fold) +
+  geom_histogram(position = "dodge", bins = 20) +
+  ggtitle("Distribution of test and train-val sets") +
+  theme_minimal()
+
+```
+
+# Relocate las files to new folder with split info
+
+```{r}
+
+#Get names of las files in clip dir
+las_fnames <- list.files(clipped_las_dir)
+
+#Ensure las files correspond with plot ids
+fname_filt <- str_replace(las_fnames, ".las", "") %in% paste0("plot_", dl_df$PlotID)
+las_fnames <- las_fnames[fname_filt]
+
+print("Checking that las files correspond with plot IDs:")
+table(str_replace(las_fnames, ".las", "") %in% paste0("plot_", dl_df$PlotID))
+
+```
+
+# Export results
+
+```{r, echo=TRUE}
+
+#Final NA check
+check_df_for_nas(dl_df)
+
+#Export plot data prepped for DL (i.e., Z scored)
+write_csv(dl_df, here("data/biomass_labels.csv"))
+
+#Export the plot locations with updated spatial cross validation folds
+st_write(plots, here("data/plot_locations.gpkg"), append = FALSE)
+
+```
+
+
+# Run time 
+
+```{r, echo=TRUE}
+
+end_time <- Sys.time()
+
+# Calculate elapsed time in seconds
+elapsed_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+# Convert elapsed time to hours, minutes, and seconds
+elapsed_hours <- floor(elapsed_time / 3600)
+elapsed_minutes <- floor((elapsed_time %% 3600) / 60)
+elapsed_seconds <- elapsed_time %% 60
+
+# Print the elapsed time in hours, minutes, and seconds
+cat("Elapsed time:", elapsed_hours, "hours,", elapsed_minutes, "minutes,", elapsed_seconds, "seconds.")
+  
+```
+
+# Reproducibility
+
+```{r, echo=TRUE}
+
+Sys.info()
+
+sessionInfo()
+
+```
