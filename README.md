@@ -5,11 +5,11 @@
 <br>
 
 <div style="text-align:center;">
-    <img src="visual_abstract.png" alt="Visual Abstract" style="width:90%;">
+    <img src="images/ssl_explanation.png" alt="Visual Abstract" style="width:90%;">
 </div>
 
 <div style="text-align:center;">
-    <img src="octree_figure.png" alt="Octree Figure" style="width:90%;">
+    <img src="images/octree_figure.png" alt="Octree Figure" style="width:90%;">
 </div>
 
 <br>
