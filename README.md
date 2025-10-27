@@ -52,6 +52,17 @@ The pretrained OCNN weights are provided in the `ocnn_pretrained.ckpt` file.
 
 Please refer to the `load_checkpoint` method within `models/ocnn_lightning.py` for details regarding loading a model checkpoint.
 
+## Point2Vec Implementation
+
+<div style="text-align:center;">
+    <img src="images/point2vec.png" alt="Point2Vec Figure" style="width:90%;">
+</div>
+
+The code used to implement Point2Vec (summary shown above) can be found at the following repository. 
+
+**https://github.com/kabouzeid/point2vec**
+
+The model architecture was remained unchanged from the original study. The only difference was the replacement of the final layer in Point2Vec with the Regressor layer included in this repo (found under models/regressor.py).
     
 # Acknowledgements
 
