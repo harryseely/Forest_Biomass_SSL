@@ -58,11 +58,11 @@ Please refer to the `load_checkpoint` method within `models/ocnn_lightning.py` f
     <img src="images/point2vec.png" alt="Point2Vec Figure" style="width:90%;">
 </div>
 
-The code used to implement Point2Vec (summary shown above) can be found at the following repository. 
+The code used to implement Point2Vec (summary shown above) can be found at the following repository:
 
 **https://github.com/kabouzeid/point2vec**
 
-The model architecture was remained unchanged from the original study. The only difference was the replacement of the final layer in Point2Vec with the Regressor layer included in this repo (found under models/regressor.py).
+The model architecture was unchanged from the original study. The only difference was the replacement of the final layer in Point2Vec with the Regressor layer included in this repo (found under models/regressor.py).
     
 # Acknowledgements
 
