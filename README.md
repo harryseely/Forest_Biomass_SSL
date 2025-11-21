@@ -38,6 +38,7 @@ The uv package manager allows for the installation of specific package versions 
 
     ```
     git clone https://github.com/harryseely/Tree_Biomass_SSL
+    cd Tree_Biomass_SSL
     ```
 
 4. Intialize the uv environment and install dependencies.
