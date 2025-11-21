@@ -25,7 +25,7 @@ The uv package manager allows for the installation of specific package versions 
 1. Open a terminal and check that uv is installed by running 
 
     ```
-    uv
+    uv --help
     ```
 
 2. Ensure uv is up-to-date by running
