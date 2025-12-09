@@ -36,12 +36,28 @@ def train_rf(df, fold_col_nm, target_ls, metrics_ls, n_samp_train="all"):
 
     #Split data into train and test
     if n_samp_train == "all":
-        train_df = df[df[fold_col_nm] == "train"]
+        train_df = df[df[fold_col_nm].isin(["train", "val"])].reset_index(drop=True)
         n_samp_train = train_df.shape[0]
     else:
-        train_df = df[df[fold_col_nm] == "train"].sample(n=n_samp_train, random_state=15)
+        train_df = (df[df[fold_col_nm].isin(["train", "val"])]
+                    .sample(n=n_samp_train, random_state=15)
+                    .reset_index(drop=True))
 
     test_df = df[df[fold_col_nm] == "test"]
+
+    # Ensure no NAs present in data
+    na_count = df.isna().sum().sum()
+
+    if na_count > 0:
+        na_df = df.isna().sum().reset_index().rename(columns={'index': 'column', 0: 'na_count'})
+
+        print(na_df[na_df['na_count'] > 0])
+
+        # Drop NA columns
+        na_cols = na_df[na_df['na_count'] > 0].column.tolist()
+        print(f"Dropping {len(na_cols)} columns with NAs: {na_cols}")
+
+        df = df.drop(columns=na_cols)
 
     #Create and fit the model
     model = RandomForestRegressor(n_jobs=1)

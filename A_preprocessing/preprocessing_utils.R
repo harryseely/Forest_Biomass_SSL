@@ -121,31 +121,16 @@ convert_to_z_score <- function(vector){
 
 }
 
-custom_metrics <- function(x, y, z, z_percentiles=FALSE){
+custom_metrics <- function(X, Y, Z, Intensity, ReturnNumber, NumberOfReturns){
   
-  m_basic  <- lidRmetrics::metrics_basic(z=z)
-  
-  m_vox <- metrics_voxels(x=x, y=y, z=z, vox_size = 1)
-  
-  m_lad <- metrics_lad(z=z)
-  
-  m_dens <- metrics_canopydensity(z=z, interval_count=10)
+  metrics <- lidRmetrics::metrics_set3(X = X, 
+                                       Y = Y, 
+                                       Z = Z, 
+                                       i = Intensity,
+                                       ReturnNumber = ReturnNumber,
+                                       NumberOfReturns = NumberOfReturns)
 
-  m_percabv <- metrics_percabove(z=z, threshold = c(2, 5))
-
-  m_disper <- metrics_dispersion(z=z, dz = 1)
-
-  m_interv <- metrics_interval(z=z, zintervals = c(0, 0.15, 2, 5, 10, 20, 30))
-
-  m <- c(m_basic, m_vox, m_lad, m_dens, m_percabv, m_disper, m_interv)
-
-  #Add percentiles if requested
-  if(z_percentiles){
-    m_percentiles <- lidRmetrics::metrics_percentiles(z=z)
-    m <- c(m, m_percentiles)
-  }
-
-  return(m)
+  return(metrics)
 }
 
 #Define function to remove points from the val/test dataset that are closest to the train cluster centroid

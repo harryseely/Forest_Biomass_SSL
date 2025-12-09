@@ -41,10 +41,9 @@ if __name__ == "__main__":
         "task": tune.grid_search(["finetune", "scratch"]),
         "cv_fold_num": tune.grid_search([1, 2, 3, 4, 5]),
         "model_ckpt_fpath": tune.sample_from(lambda x: None if x.config.task == "scratch" else model_ckpt_fpath),
-        # "spatial_cv": tune.grid_search([True, False]),
     }
 
-    print(f"\nConfig:")
+    print("\nConfig:")
     pprint(cfg)
     print("\n")
 

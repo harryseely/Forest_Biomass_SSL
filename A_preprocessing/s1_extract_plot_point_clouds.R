@@ -4,7 +4,7 @@ library(here)
 library(sf)
 library(dplyr)
 
-source("preprocessing/preprocessing_utils.R")
+source("A_preprocessing/preprocessing_utils.R")
 
 #Read the las catalog
 rmf_lidar_dir <- "E:/RMF/RMF_SPL100/LAS_Classified_Point_Clouds_Normalized"
@@ -40,10 +40,15 @@ for(i in 1:nrow(plots_buffered)){
     plot_geom <- plots_buffered[plots_buffered$PlotID == plot_id,]
     
     #Clip las
-    las_clipped <- lidR::clip_roi(ctg, plot_geom)
+    las <- lidR::clip_roi(ctg, plot_geom)
     
     #Get metrics
-    metrics_i <- lidR::cloud_metrics(las_clipped, func = custom_metrics(x=X, y=Y, z=Z, z_percentiles = TRUE))
+    metrics_i <- lidRmetrics::metrics_set3(x = las@data$X, 
+                                       y = las@data$Y, 
+                                       z = las@data$Z, 
+                                       i = las@data$Intensity,
+                                       ReturnNumber = las@data$ReturnNumber,
+                                       NumberOfReturns = las@data$NumberOfReturns)
     
     #Convert metrics to df with plot id
     metrics_i$plot_id <- plot_id
@@ -54,7 +59,7 @@ for(i in 1:nrow(plots_buffered)){
     
     #Write clipped las
     out_fname <- paste0("plot_", plot_id, ".las")
-    writeLAS(las_clipped, file.path(output_dir, out_fname))
+    writeLAS(las, file.path(output_dir, out_fname))
 
     print(paste0("Extracted point cloud for plot ", plot_id))
 

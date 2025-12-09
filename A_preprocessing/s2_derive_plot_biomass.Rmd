@@ -670,6 +670,9 @@ table(str_replace(las_fnames, ".las", "") %in% paste0("plot_", dl_df$PlotID))
 #Final NA check
 check_df_for_nas(dl_df)
 
+# Export trees
+write_csv(trees, here("data/romeo_trees_with_biomass.csv"))
+
 #Export plot data prepped for DL (i.e., Z scored)
 write_csv(dl_df, here("data/biomass_labels.csv"))
 
